@@ -27,7 +27,7 @@ WHITELIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 TARGET_H = 160
 TEXT_H = 60
 
-MIN_CHARS = 5              # characters needed to accept a candidate as a plate
+MIN_CHARS = 6              # characters needed to accept a candidate as a plate
 MIN_LEN, MAX_LEN = 4, 10   # plausible plate text length
 MIN_HITS = 4               # detections a track needs before it is drawn or logged
 MIN_READS = 3              # OCR readings needed before logging
