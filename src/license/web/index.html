@@ -5,57 +5,128 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Plates</title>
 <style>
-  :root { --fg:#111; --muted:#777; --line:#e5e5e5; --bg:#fff; --accent:#0a7; }
-  @media (prefers-color-scheme: dark) {
-    :root { --fg:#eee; --muted:#888; --line:#2a2a2a; --bg:#111; }
+  :root {
+    --bg:#fafafa; --card:#fff; --fg:#09090b; --muted:#71717a; --border:#e4e4e7;
+    --subtle:#f4f4f5; --ok:#16a34a; --ok-bg:#dcfce7; --radius:10px;
   }
-  * { box-sizing: border-box; }
-  body { margin:0; padding:24px; font:14px/1.5 system-ui, sans-serif; color:var(--fg); background:var(--bg); }
-  .wrap { max-width:1300px; margin:0 auto; display:grid; grid-template-columns:minmax(0,3fr) minmax(280px,2fr); gap:24px; }
-  @media (max-width:900px) { .wrap { grid-template-columns:1fr; } }
-  h1 { font-size:16px; font-weight:600; margin:0 0 16px; }
-  .video { width:100%; background:#000; border-radius:6px; display:block; aspect-ratio:16/9; object-fit:contain; }
-  .meta { color:var(--muted); margin-top:8px; display:flex; gap:16px; flex-wrap:wrap; }
-  .stats { display:flex; gap:24px; margin-bottom:16px; }
-  .stat b { display:block; font-size:28px; font-weight:600; line-height:1.1; }
-  .stat span { color:var(--muted); font-size:12px; }
-  .bar { display:flex; justify-content:space-between; align-items:center; margin:16px 0 8px; }
-  h2 { font-size:13px; font-weight:600; margin:0; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
-  button { font:inherit; padding:6px 12px; border:1px solid var(--line); background:transparent; color:var(--fg); border-radius:6px; cursor:pointer; }
-  button:hover { border-color:var(--muted); }
-  .scroll { max-height:60vh; overflow:auto; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#09090b; --card:#0f0f11; --fg:#fafafa; --muted:#a1a1aa; --border:#27272a;
+            --subtle:#18181b; --ok:#4ade80; --ok-bg:#14532d55; }
+  }
+  * { box-sizing:border-box; }
+  html, body { height:100%; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+         -webkit-font-smoothing:antialiased; }
+
+  .app { height:100vh; max-width:1440px; margin:0 auto; padding:24px 32px;
+         display:flex; flex-direction:column; gap:20px; }
+
+  header { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+  h1 { font-size:20px; font-weight:600; letter-spacing:-.02em; margin:0; }
+  .sub { color:var(--muted); font-size:13px; margin:2px 0 0; }
+  .actions { display:flex; align-items:center; gap:10px; }
+
+  .badge { display:inline-flex; align-items:center; gap:6px; height:24px; padding:0 10px;
+           border:1px solid var(--border); border-radius:999px; font-size:12px; font-weight:500;
+           background:var(--card); white-space:nowrap; }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--muted); }
+  .dot.live { background:var(--ok); box-shadow:0 0 0 3px var(--ok-bg); }
+
+  button { font:inherit; font-size:13px; font-weight:500; height:34px; padding:0 14px;
+           border-radius:8px; border:1px solid var(--fg); background:var(--fg); color:var(--bg);
+           cursor:pointer; display:inline-flex; align-items:center; gap:8px; }
+  button:hover { opacity:.9; }
+
+  .card { background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
+          box-shadow:0 1px 2px rgba(0,0,0,.04); }
+
+  .stats { display:grid; grid-template-columns:repeat(4, 1fr); gap:16px; }
+  .stat { padding:16px 20px; }
+  .stat .label { color:var(--muted); font-size:13px; font-weight:500; }
+  .stat .value { font-size:28px; font-weight:600; letter-spacing:-.02em; line-height:1.2; margin-top:4px;
+                 font-variant-numeric:tabular-nums; }
+
+  .main { flex:1; min-height:0; display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .panel { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+  .panel-head { display:flex; align-items:center; justify-content:space-between; gap:12px;
+                padding:14px 20px; border-bottom:1px solid var(--border); }
+  .panel-head h2 { font-size:14px; font-weight:600; margin:0; }
+  .panel-head .hint { color:var(--muted); font-size:12px; }
+
+  .video-wrap { flex:1; min-height:0; background:#000; display:flex; align-items:center; justify-content:center; }
+  .video-wrap img { width:100%; height:100%; object-fit:contain; display:block; }
+  .inview { display:flex; gap:8px; flex-wrap:wrap; align-items:center; padding:12px 20px;
+            border-top:1px solid var(--border); min-height:49px; }
+  .chip { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:13px; font-weight:600;
+          letter-spacing:.06em; padding:2px 10px; border-radius:6px; background:var(--subtle);
+          border:1px solid var(--border); }
+  .chip small { font-family:ui-sans-serif, system-ui, sans-serif; font-weight:500; letter-spacing:0;
+                color:var(--muted); margin-left:6px; }
+
+  .table-wrap { flex:1; min-height:0; overflow:auto; }
   table { width:100%; border-collapse:collapse; }
-  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
-  th { color:var(--muted); font-weight:500; font-size:12px; }
-  td.plate { font-family:ui-monospace, monospace; font-size:15px; font-weight:600; letter-spacing:.05em; }
-  .live { color:var(--accent); }
-  .empty { color:var(--muted); padding:12px 8px; }
+  thead th { position:sticky; top:0; background:var(--card); text-align:left; font-size:12px;
+             font-weight:500; color:var(--muted); padding:10px 20px; border-bottom:1px solid var(--border); }
+  tbody td { padding:10px 20px; border-bottom:1px solid var(--border); white-space:nowrap;
+             font-variant-numeric:tabular-nums; }
+  tbody tr:hover { background:var(--subtle); }
+  td.plate { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-weight:600; letter-spacing:.06em; }
+  td.num, th.num { text-align:right; }
+  td.src { color:var(--muted); }
+  .empty { color:var(--muted); text-align:center; padding:40px 20px !important; }
+  .muted { color:var(--muted); font-size:13px; }
+
+  @media (max-width:900px) {
+    .app { height:auto; padding:16px; }
+    .stats { grid-template-columns:repeat(2, 1fr); }
+    .main { grid-template-columns:1fr; }
+    .video-wrap { aspect-ratio:16/9; flex:none; }
+    .table-wrap { max-height:60vh; }
+    header { flex-wrap:wrap; }
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <section>
-    <h1>License plates</h1>
-    <img class="video" src="/stream.mjpg" alt="live video">
-    <div class="meta"><span id="source">–</span><span id="fps"></span></div>
+<div class="app">
+  <header>
+    <div>
+      <h1>License Plate Recognition</h1>
+      <p class="sub">Real-time detection, tracking and logging</p>
+    </div>
+    <div class="actions">
+      <span class="badge"><span class="dot" id="dot"></span><span id="source">Connecting…</span></span>
+      <button id="export">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+        Export CSV
+      </button>
+    </div>
+  </header>
+
+  <section class="stats">
+    <div class="card stat"><div class="label">Vehicles logged</div><div class="value" id="n-total">0</div></div>
+    <div class="card stat"><div class="label">Unique plates</div><div class="value" id="n-unique">0</div></div>
+    <div class="card stat"><div class="label">In view</div><div class="value" id="n-live">0</div></div>
+    <div class="card stat"><div class="label">Processing speed</div><div class="value" id="fps">–</div></div>
   </section>
 
-  <section>
-    <div class="stats">
-      <div class="stat"><b id="n-total">0</b><span>vehicles logged</span></div>
-      <div class="stat"><b id="n-unique">0</b><span>unique plates</span></div>
-      <div class="stat"><b id="n-live">0</b><span>in view</span></div>
+  <section class="main">
+    <div class="card panel">
+      <div class="panel-head"><h2>Live feed</h2><span class="hint" id="src-name"></span></div>
+      <div class="video-wrap"><img src="/stream.mjpg" alt="live video"></div>
+      <div class="inview" id="live"></div>
     </div>
 
-    <div class="bar"><h2>In view</h2></div>
-    <table><tbody id="live"></tbody></table>
-
-    <div class="bar"><h2>Logged</h2><button id="export">Export CSV</button></div>
-    <div class="scroll">
-      <table>
-        <thead><tr><th>Time</th><th>Plate</th><th>Conf.</th><th>Reads</th><th>Source</th></tr></thead>
-        <tbody id="rows"></tbody>
-      </table>
+    <div class="card panel">
+      <div class="panel-head"><h2>Logged vehicles</h2><span class="hint">Newest first</span></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Time</th><th>Plate</th><th class="num">Confidence</th><th class="num">Reads</th><th>Source</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
     </div>
   </section>
 </div>
@@ -69,22 +140,25 @@ async function refresh() {
   try {
     const s = await (await fetch("/api/state")).json();
     plates = s.plates;
-    $("source").textContent = s.done ? "Finished" : (s.source || "–");
-    $("fps").textContent = s.done ? "" : `${s.fps.toFixed(1)} fps`;
+    $("dot").className = s.done ? "dot" : "dot live";
+    $("source").textContent = s.done ? "Finished" : "Live";
+    $("src-name").textContent = s.source || "";
+    $("fps").textContent = s.done ? "–" : `${s.fps.toFixed(0)} fps`;
     $("n-total").textContent = plates.length;
     $("n-unique").textContent = new Set(plates.map(p => p.plate)).size;
     $("n-live").textContent = s.active.length;
 
     $("live").innerHTML = s.active.length
-      ? s.active.map(t => `<tr><td>#${t.id}</td><td class="plate live">${esc(t.plate || "…")}</td><td>${t.reads} reads</td></tr>`).join("")
-      : `<tr><td class="empty">No plates in view</td></tr>`;
+      ? s.active.map(t => `<span class="chip">${esc(t.plate || "…")}<small>#${t.id}</small></span>`).join("")
+      : `<span class="muted">No plates in view</span>`;
 
     $("rows").innerHTML = plates.length
       ? plates.slice().reverse().map(p =>
           `<tr><td>${esc(p.timestamp.slice(11))}</td><td class="plate">${esc(p.plate)}</td>` +
-          `<td>${p.confidence}%</td><td>${p.readings}</td><td>${esc(p.source)}</td></tr>`).join("")
-      : `<tr><td colspan="5" class="empty">Nothing logged yet</td></tr>`;
+          `<td class="num">${p.confidence}%</td><td class="num">${p.readings}</td><td class="src">${esc(p.source)}</td></tr>`).join("")
+      : `<tr><td colspan="5" class="empty">No vehicles logged yet</td></tr>`;
   } catch (e) {
+    $("dot").className = "dot";
     $("source").textContent = "Disconnected";
   }
 }
