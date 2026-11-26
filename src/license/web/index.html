@@ -27,11 +27,6 @@
   .sub { color:var(--muted); font-size:13px; margin:2px 0 0; }
   .actions { display:flex; align-items:center; gap:10px; }
 
-  .badge { display:inline-flex; align-items:center; gap:6px; height:24px; padding:0 10px;
-           border:1px solid var(--border); border-radius:999px; font-size:12px; font-weight:500;
-           background:var(--card); white-space:nowrap; }
-  .dot { width:7px; height:7px; border-radius:50%; background:var(--muted); }
-  .dot.live { background:var(--ok); box-shadow:0 0 0 3px var(--ok-bg); }
 
   button { font:inherit; font-size:13px; font-weight:500; height:34px; padding:0 14px;
            border-radius:8px; border:1px solid var(--fg); background:var(--fg); color:var(--bg);
@@ -95,7 +90,6 @@
       <p class="sub">Real-time detection, tracking and logging</p>
     </div>
     <div class="actions">
-      <span class="badge"><span class="dot" id="dot"></span><span id="source">Connecting…</span></span>
       <button id="export">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
              stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -140,8 +134,6 @@ async function refresh() {
   try {
     const s = await (await fetch("/api/state")).json();
     plates = s.plates;
-    $("dot").className = s.done ? "dot" : "dot live";
-    $("source").textContent = s.done ? "Finished" : "Live";
     $("src-name").textContent = s.source || "";
     $("fps").textContent = s.done ? "–" : `${s.fps.toFixed(0)} fps`;
     $("n-total").textContent = plates.length;
@@ -157,10 +149,7 @@ async function refresh() {
           `<tr><td>${esc(p.timestamp.slice(11))}</td><td class="plate">${esc(p.plate)}</td>` +
           `<td class="num">${p.confidence}%</td><td class="num">${p.readings}</td><td class="src">${esc(p.source)}</td></tr>`).join("")
       : `<tr><td colspan="5" class="empty">No vehicles logged yet</td></tr>`;
-  } catch (e) {
-    $("dot").className = "dot";
-    $("source").textContent = "Disconnected";
-  }
+  } catch (e) {}
 }
 
 $("export").onclick = () => {
