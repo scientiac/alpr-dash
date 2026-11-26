@@ -14,7 +14,7 @@ GREEN, GREY = (80, 200, 60), (170, 170, 170)
 
 def draw(frame, tracks, frame_idx):
     for t in tracks:
-        if frame_idx - t.last_frame > 2:
+        if frame_idx - t.last_frame > 3:
             continue
         x1, y1, x2, y2 = t.box
         text = t.result()[0]
@@ -59,7 +59,7 @@ def process(src, recognizer, store, state=None, realtime=True):
     start = datetime.now()
     t0 = time.perf_counter()
     tracker = Tracker()
-    frame_idx, fps, last = 0, 0.0, time.perf_counter()
+    frame_idx, frame_time, last, behind = 0, 0.0, time.perf_counter(), False
 
     try:
         while True:
@@ -70,24 +70,28 @@ def process(src, recognizer, store, state=None, realtime=True):
             when = (datetime.now() if stream else
                     start + timedelta(milliseconds=cap.get(cv2.CAP_PROP_POS_MSEC)))
 
-            boxes = recognizer.detect(frame)
-            matched, finished = tracker.update(frame_idx, when, boxes)
-            for t, box in matched:
-                if t.needs_ocr(frame_idx):
-                    t.last_ocr = frame_idx
-                    r = recognizer.read(frame, box)
-                    if r and r[1] >= config.MIN_CONF and config.MIN_LEN <= len(r[0]) <= config.MAX_LEN:
-                        t.add_read(*r)
-            log_finished(finished, store, name)
+            # When playback falls behind, skip detection on this frame;
+            # the tracks simply keep their last box
+            if not behind:
+                boxes = recognizer.detect(frame)
+                matched, finished = tracker.update(frame_idx, when, boxes)
+                for t, box in matched:
+                    if t.needs_ocr(frame_idx):
+                        t.last_ocr = frame_idx
+                        r = recognizer.read(frame, box)
+                        if (r and r[1] >= config.MIN_CONF
+                                and config.MIN_LEN <= len(r[0]) <= config.MAX_LEN):
+                            t.add_read(*r)
+                log_finished(finished, store, name)
 
             now = time.perf_counter()
-            fps = 0.9 * fps + 0.1 / max(now - last, 1e-6) if frame_idx else 0.0
-            last = now
+            frame_time = 0.95 * frame_time + 0.05 * (now - last) if frame_idx else 1 / video_fps
+            fps, last = 1 / max(frame_time, 1e-6), now
 
             if state is not None:
                 draw(frame, tracker.tracks, frame_idx)
                 active = [{"id": t.id, "plate": t.result()[0], "reads": len(t.reads)}
-                          for t in tracker.tracks if frame_idx - t.last_frame <= 2]
+                          for t in tracker.tracks if frame_idx - t.last_frame <= 3]
                 jpeg = encode(frame)
                 if jpeg:
                     state.publish(jpeg, source=name, fps=fps, active=active)
@@ -96,6 +100,7 @@ def process(src, recognizer, store, state=None, realtime=True):
             # Play files at their natural speed so the dashboard looks live
             if realtime and not stream:
                 wait = t0 + frame_idx / video_fps - time.perf_counter()
+                behind = wait < 0 and not behind    # never skip twice in a row
                 if wait > 0:
                     time.sleep(wait)
     finally:
