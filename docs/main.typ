@@ -13,9 +13,9 @@
 #show: ieee.with(
   title: [Real Time License Plate Recognition System],
   abstract: [
-    This project detects moving vehicles, locates the license plate of each vehicle, and uses optical character recognition (OCR) to read the text on the plate.
+    This project watches a video or a live camera stream, finds the license plate of every vehicle, reads the text on it and logs it with a time stamp.
 
-    The recognized plate text is tracked across video frames and stored together with the time stamp of detection and relevant features of the plate, such as the recognition confidence and the number of readings that support it.
+    Plates are found and read by two small neural networks that run locally on an ordinary CPU in real time. Each plate is followed across frames and read many times; the readings are combined by a vote, so a single blurred frame cannot cause a wrong result. A simple web dashboard shows the live video, the plates in view and the logged vehicles, and exports the log as a CSV file.
   ],
   authors: (
     (
@@ -23,7 +23,7 @@
       email: "spandan@3o14.com"
     ),
   ),
-  index-terms: ("OCR", "OpenCV", "Real Time"),
+  index-terms: ("License plate recognition", "OCR", "YOLO", "Real Time"),
   bibliography: bibliography("refs.bib"),
   figure-supplement: [Fig.],
 )
@@ -32,170 +32,148 @@
 
 = Introduction
 
-Automatic license plate recognition (ALPR) is a core task in camera-based security, access control and traffic monitoring. A system has to find the plate in a cluttered scene, read its characters reliably despite blur, glare and small image size, and record each vehicle once, with a time stamp.
+Automatic license plate recognition (ALPR) is used for parking, access control and traffic monitoring. A system has to find a small plate in a busy picture, read its characters despite blur and glare, and record each vehicle once, with a time stamp.
 
-This project utilizes the following components to successfully determine and log the license plates of the moving vehicles:
+The first prototype of this project used classical image processing (edge detection, thresholds and contour shapes) with the general-purpose Tesseract OCR engine @smith2007. It needed many hand-tuned numbers, confused similar characters such as `A`/`4` and `5`/`9`, and mistook grilles and leaves for plates. The current version replaces those hand-built steps with two models trained specifically on license plates, which is both simpler and far more accurate.
 
-+ OpenCV for image processing, contour analysis and video input.
-+ PyTesseract, a Python wrapper for the Tesseract OCR engine @smith2007, for reading the plate characters.
-+ NumPy for array operations.
-+ imutils for portable contour handling.
+The project uses:
 
-The program accepts either video files or a stream URL, processes the frames one at a time, and appends one row per recognized vehicle to a CSV log.
++ *fast-alpr*, which bundles a YOLOv9 plate detector @wang2024yolov9 and a plate OCR model based on a compact transformer @hassani2021cct. Both run with ONNX Runtime on the CPU.
++ *OpenCV* for reading video files and streams and for drawing on frames.
++ Python's built-in web server for the dashboard; no web framework is needed.
 
-= System Overview
+= How It Works
 
-@fig:pipeline lists the stages of the pipeline. The first stages are classical image-processing steps that propose candidate regions. Later stages verify a candidate by finding character-like shapes in it, read the text, and combine the readings of several frames into a single result.
+Every frame passes through the steps in @fig:pipeline.
 
 #figure(
   table(
     columns: (auto, 1fr),
     align: (center, left),
     stroke: 0.5pt,
-    [*\#*], [*Stage*],
-    [1], [Gaussian blur and grayscale conversion],
-    [2], [Vertical edge detection (Sobel)],
-    [3], [Otsu binarization],
-    [4], [Morphological closing],
-    [5], [Contour extraction],
-    [6], [Minimum-area rectangle validation],
-    [7], [Character localization and tight crop],
-    [8], [OCR with Tesseract (several variants)],
-    [9], [Tracking and per-vehicle voting],
-    [10], [Time-stamped CSV logging],
+    [*\#*], [*Step*],
+    [1], [Read a frame from the file or stream],
+    [2], [Detect plates (YOLO) #sym.arrow boxes],
+    [3], [Match boxes to plates seen in earlier frames],
+    [4], [Read the text of each plate (OCR)],
+    [5], [Combine the readings of each plate by voting],
+    [6], [When a plate leaves the view, log it to CSV],
+    [7], [Draw boxes and send the frame to the dashboard],
   ),
-  caption: [Processing stages of the recognition pipeline.],
+  caption: [Processing steps for each frame.],
 ) <fig:pipeline>
 
-= Methodology
+== Finding plates
 
-== Preprocessing
+The detector looks at the whole frame once and returns a box around each plate it finds, with a confidence score. It was trained on many thousands of plate photos, so it does not need rules about plate size, colour or shape. Boxes below 40% confidence are ignored.
 
-Each frame is smoothed with a Gaussian filter to suppress sensor noise and converted to grayscale. Smoothing first reduces the number of spurious edges found in the next step.
+== Following each vehicle
 
-== Vertical Edge Detection
+A moving car is seen in many frames. The tracker links a new box to an existing plate when the two boxes overlap or their centres are close (within about one and a half plate widths). Otherwise a new plate track starts. A track ends when its plate has not been seen for 15 frames.
 
-Plate characters are tall, thin strokes, so a plate region contains many vertical edges. The horizontal derivative is computed with a $3 times 3$ Sobel kernel:
+== Reading the text
 
-$ G_x = mat(-1, 0, 1; -2, 0, 2; -1, 0, 1) ast.op I $
+Each plate box is cut out with a small margin and given to the OCR model, which returns the characters and how sure it is about each one. Readings that are too short, too long, or less than 50% certain are thrown away. To save time, a plate is read only every second frame, and less often once its readings all agree.
 
-The absolute value of $G_x$ is taken and scaled to 8 bits, because the signed response would otherwise lose the dark-to-light edges.
+== Voting
 
-== Binarization
+A single frame can be blurred, or the car can still be far away so that a character is missed. The system therefore keeps the 12 most confident readings of each plate and votes:
 
-The edge image is binarized with Otsu's method @otsu1979, which selects the threshold $t$ that maximizes the between-class variance:
++ The most common text length wins.
++ For each character position, the character with the highest total confidence wins.
 
-$ sigma_b^2 (t) = omega_0 (t) omega_1 (t) [mu_0 (t) - mu_1 (t)]^2 $
-
-where $omega_i$ and $mu_i$ are the probability and mean intensity of the two classes. No threshold has to be chosen by hand, so the method adapts to different lighting.
-
-== Morphological Closing
-
-A closing operation (dilation followed by erosion) with a wide, short rectangular kernel joins the vertical edges of neighbouring characters into one solid block, which reveals the rectangular body of the plate. The kernel width is derived from the frame width so that the same code works at different resolutions.
-
-== Contours and Candidate Validation
-
-Contours of the closed image are extracted with the border-following algorithm of Suzuki and Abe @suzuki1985. The minimum-area rotated rectangle of each contour, with width $w$ and height $h$ ($w >= h$), is kept only if
-
-$ A_"min" <= w h <= A_"max", quad r_"min" <= w / h <= r_"max" $
-
-and its tilt is below $15 degree$. The area limits are expressed as fractions of the frame width, so they scale with the video resolution. Candidates are then rotated to be level and cropped with padding, so that no character is cut off.
-
-== Character Localization
-
-Edge-based candidates also include grilles, lane markings, foliage and brick joints. To reject them, each candidate is binarized in several ways (Otsu and adaptive, both polarities), and connected components are filtered. A set of components is accepted as a plate only if it contains enough characters, with similar heights, a common baseline and even spacing. Rows are grouped by vertical position, which also supports two-line plates. The accepted characters define a tight crop; the frame, screws and background are discarded before OCR, and mostly green candidates are rejected as vegetation.
-
-== Optical Character Recognition
-
-The tight crop is resized so that the character height suits Tesseract, and three variants are prepared: contrast-limited adaptive histogram equalization (CLAHE) @pizer1987, an Otsu version, and an adaptive-threshold version. Tesseract runs on each variant with a whitelist of letters and digits, using single-line or block mode depending on the number of rows. No country-specific format is assumed.
-
-== Tracking and Voting
-
-A single frame of a moving vehicle is often blurred, so one reading is not trusted. A nearest-centre tracker assigns an identifier to each plate across frames. For each track, the readings $t_k$ with confidence $w_k$ are combined by a weighted per-position vote:
-
-$ hat(c)_i = op("arg max", limits: #true)_c sum_k w_k bb(1) [t_(k,i) = c] $
-
-An agreement score measures how consistent the readings are with the voted text of length $L$ over $N$ readings:
-
-$ a = 1 / N sum_(k=1)^N 1 / L sum_(i=1)^L bb(1) [t_(k,i) = hat(c)_i] $
-
-A track is logged only if it persisted for several detections, has enough readings above a confidence floor, and reaches a minimum agreement. Random shapes such as foliage give different text in each frame, so they fail this test.
+For example, the readings `KR154K`, `KR154GK`, `KR154GK` give `KR154GK`. The *agreement* is the share of characters, over all readings, that match the voted text. A plate is logged only if it was detected at least 3 times, read at least twice, and its agreement is at least 60%. Random shapes give different text each time, so they fail this check.
 
 == Logging
 
-When a track ends, its time stamp (the time of first appearance), source, plate text, mean confidence and number of readings are appended to a CSV file. A cooldown prevents the same plate from being logged twice for one pass.
+When a track ends, one row is appended to `plates.csv`: time of first appearance, source, plate text, confidence and number of readings. If the same plate is logged again from the same source within 30 seconds (for example because the car was hidden for a moment), the duplicate is skipped. For video files the time is the start of the run plus the position in the video; for streams it is the current clock time.
 
-= Implementation
+== Staying real time
 
-The program is written in Python 3.12 and managed with `uv`. Videos placed in the `testset` directory are processed by default; a file path or a stream URL can be given instead. For video files, time stamps are the start time of the run plus the position in the video; for streams, the wall-clock time is used.
+Detection is the slowest step (about 30 ms per frame). When a video file starts to fall behind its natural speed, detection is skipped on the next frame and the boxes stay where they were; this keeps the playback smooth. For live streams a background thread always keeps only the newest frame, so the system never lags behind the camera. Each model uses 4 CPU threads, which is as fast as using all cores but uses far less CPU.
 
-@tab:params summarizes the main parameters.
+= Dashboard
+
+Running the program opens a dashboard at `http://127.0.0.1:8000`. It shows:
+
+- the live video with a box and the current reading over each plate (green once the plate is confirmed);
+- the number of logged vehicles, unique plates and plates in view;
+- the plates currently in view and the table of logged vehicles;
+- an *Export CSV* button that downloads the logged table from the browser.
+
+= Usage
+
+```
+uv run license                  # all videos in src/testset
+uv run license video.mp4        # one file
+uv run license rtsp://camera/1  # a live stream
+uv run license --fast           # files as fast as possible
+uv run license --no-web         # console and CSV only
+```
+
+The models (about 13 MB) are downloaded on the first run and cached; after that everything runs offline. All settings are in `config.py`.
+
+= Code Structure
+
+#figure(
+  table(
+    columns: (auto, 1fr),
+    align: (left, left),
+    stroke: 0.5pt,
+    [*File*], [*Purpose*],
+    [`config.py`], [All settings],
+    [`sources.py`], [Choose inputs, lag-free stream reader],
+    [`recognizer.py`], [Plate detection and OCR],
+    [`tracker.py`], [Tracking, voting, agreement],
+    [`store.py`], [CSV log and list for the dashboard],
+    [`pipeline.py`], [The per-frame loop and drawing],
+    [`web/`], [Dashboard server and page],
+    [`__init__.py`], [Command line entry point],
+  ),
+  caption: [Source files in `src/license`.],
+) <tab:files>
+
+= Results
+
+The system was run on the five test videos (1280×720, 25 fps) on a 16-thread CPU without a GPU.
+
+#figure(
+  table(
+    columns: (1fr, auto, auto),
+    align: (left, left, right),
+    stroke: 0.5pt,
+    [*Video*], [*Logged plate*], [*Conf.*],
+    [`agh_src5`], [`KR439HA`], [100%],
+    [`agh_src6`], [`KR537CW`], [100%],
+    [`agh_src8`], [`KR642LU`], [100%],
+    [`agh_src10`], [`KR154GK`], [100%],
+    [`agh_src13`], [`KR992ES`], [100%],
+  ),
+  caption: [Logged plates on the test set.],
+) <tab:results>
+
+Every vehicle was logged exactly once with the correct text and no false entries.
 
 #figure(
   table(
     columns: (1fr, auto),
-    align: (left, left),
+    align: (left, right),
     stroke: 0.5pt,
-    [*Parameter*], [*Value*],
-    [Plate width / frame width], [0.04--0.13],
-    [Aspect ratio range], [2.0--6.0],
-    [Maximum tilt], [$15 degree$],
-    [Region of interest (vertical)], [20%--80%],
-    [Minimum characters], [5],
-    [Detection interval], [every 2 frames],
-    [Minimum detections per track], [4],
-    [Minimum readings per track], [3],
-    [Minimum agreement], [0.6],
-    [Minimum OCR confidence], [40],
-    [Lost-track timeout], [20 frames],
-    [Re-log cooldown], [30 s],
+    [*Step*], [*Time per frame*],
+    [Read frame], [≈ 2 ms],
+    [Detect plates], [≈ 30 ms],
+    [OCR (all plates)], [≈ 7 ms],
+    [Draw and encode], [≈ 3 ms],
   ),
-  caption: [Main parameters of the pipeline.],
-) <tab:params>
+  caption: [Measured processing time.],
+) <tab:speed>
 
-The candidate validation is the central filter of the detection stage. A simplified version is shown in @lst:validate.
-
-#figure(
-  ```python
-  def validate(rect):
-      _, (w, h), angle = normalize(rect)
-      if w == 0 or h == 0:
-          return False
-      return (
-          MIN_AREA <= w * h <= MAX_AREA
-          and MIN_RATIO <= w / h <= MAX_RATIO
-          and abs(angle) <= MAX_TILT
-      )
-  ```,
-  caption: [Candidate rectangle validation.],
-) <lst:validate>
-
-= Preliminary Observations
-
-Development on sample footage showed the following behaviours of the classical approach:
-
-- *Plate size depends on the scene.* Plates were about 2--5% of the frame width in wide traffic footage and about 7% in a close-up barrier scene, so fixed pixel limits fail. The limits were therefore made relative to the frame width.
-- *Blur confuses similar characters.* On low-resolution crops, an `A` can be read as `4` and a `5` as `9`. Removing the dark plate frame before thresholding and voting across frames reduced such errors.
-- *Cropping decides OCR quality.* Characters at the plate ends are the blurriest and are the first to be dropped by strict filters, which leaves them out of the OCR input entirely.
-- *Busy scenes cause false detections.* Foliage and paving produce vertical edges that resemble plates, which motivated the character-shape checks, the colour check and the agreement filter.
-
-= Evaluation Plan
-
-#text(fill: red)[TODO: no quantitative results have been measured yet.]
-
-The system will be evaluated on the videos in the test set with manually labelled ground truth. The planned metrics are:
-
-+ Detection recall and precision per vehicle.
-+ Character-level accuracy of the logged text.
-+ Exact-match accuracy of the whole plate.
-+ Processing speed in frames per second on a CPU.
+Without the dashboard and without speed limiting, the whole test set is processed at about 27 frames per second. With the dashboard, the videos play at their full 25 frames per second.
 
 = Limitations and Future Work
 
-The pipeline depends on hand-tuned thresholds, and Tesseract's general-purpose English model is not trained on plate fonts, so accuracy drops on small, blurred or unusual plates. The centroid tracker can break when vehicles move quickly or cross each other.
-
-Future work will compare this baseline with a trained plate detector and a plate-specific OCR model, replace the tracker with a standard multi-object tracker, and add support for reconnecting to dropped streams.
+The test set is small: five videos, each with one main vehicle, all with Polish plates. Larger and more varied footage (night, rain, several cars at once, other countries) is needed to measure accuracy properly. Very distant plates in the background are detected but too small to read, so they are not logged. The tracker uses only box position; fast vehicles crossing each other could swap tracks. A GPU, or a smaller detector input, would allow several cameras on one machine.
 
 = Conclusion
 
-This report described a real-time license plate recognition pipeline built from OpenCV and Tesseract. Candidate regions are found with edge, threshold and morphology operations, verified by character-shape analysis, read with several OCR variants, and merged over time by per-vehicle voting before being logged with a time stamp. The system provides a working baseline, and the planned evaluation will quantify its accuracy and show where a learned detector or OCR model should replace the hand-built stages.
+Replacing the hand-tuned image-processing pipeline with a trained plate detector and a plate-specific OCR model made the system simpler and much more accurate, while still running in real time on a CPU. Tracking and voting over many frames remove the errors of single blurred frames, and the web dashboard makes the results easy to watch and export.
