@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import cv2
 
 from . import config
-from .sources import display_name, is_stream
+from .sources import LatestFrame, display_name, is_stream
 from .tracker import Tracker
 
 GREEN, GREY = (80, 200, 60), (170, 170, 170)
@@ -55,6 +55,7 @@ def process(src, recognizer, store, state=None, realtime=True):
     print(f"Processing {name}")
 
     video_fps = cap.get(cv2.CAP_PROP_FPS) or 25
+    reader = LatestFrame(cap) if stream else cap
     start = datetime.now()
     t0 = time.perf_counter()
     tracker = Tracker()
@@ -62,7 +63,7 @@ def process(src, recognizer, store, state=None, realtime=True):
 
     try:
         while True:
-            ok, frame = cap.read()
+            ok, frame = reader.read()
             if not ok:
                 break
             # Wall-clock time for streams, start time + video position for files
@@ -99,4 +100,6 @@ def process(src, recognizer, store, state=None, realtime=True):
                     time.sleep(wait)
     finally:
         log_finished(tracker.flush(), store, name)
+        if stream:
+            reader.stop()
         cap.release()

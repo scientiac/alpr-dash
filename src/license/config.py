@@ -6,6 +6,7 @@ from pathlib import Path
 DETECTOR_MODEL = "yolo-v9-t-512-license-plate-end2end"   # finds plates in a frame
 OCR_MODEL = "cct-s-v2-global-model"                       # reads the plate text
 DETECT_CONF = 0.4          # minimum detector confidence for a plate box
+THREADS = 4                # CPU threads per model (more is not faster)
 
 # ---------- Tracking and voting ----------
 MATCH_IOU = 0.2            # box overlap needed to continue a track

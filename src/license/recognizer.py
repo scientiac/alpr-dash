@@ -4,6 +4,7 @@ The detector (YOLO) returns plate boxes; the OCR model reads one plate crop.
 Both are ONNX models that run locally on the CPU."""
 
 import numpy as np
+import onnxruntime as ort
 from fast_alpr import ALPR
 
 from . import config
@@ -11,7 +12,12 @@ from . import config
 
 class Recognizer:
     def __init__(self):
+        opts = ort.SessionOptions()
+        opts.intra_op_num_threads = config.THREADS
+        opts.inter_op_num_threads = 1
         self._alpr = ALPR(
+            detector_sess_options=opts,
+            ocr_sess_options=opts,
             detector_model=config.DETECTOR_MODEL,
             ocr_model=config.OCR_MODEL,
             detector_conf_thresh=config.DETECT_CONF,
