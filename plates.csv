@@ -1,4 +1,5 @@
 timestamp,source,plate,confidence,readings
-2026-11-26 15:31:05,agh_src4_hrc0.avi,KR154GK,75,3
-2026-11-26 15:37:45,agh_src10_hrc0.avi,KR154GK,73,8
-2026-11-26 16:09:16,agh_src10_hrc0.avi,KR154GK,67,6
+2026-11-26 17:59:00,agh_src13_hrc0.avi,KR992ES,100,12
+2026-11-26 17:59:29,agh_src5_hrc0.avi,KR439HA,100,10
+2026-11-26 17:59:35,agh_src6_hrc0.avi,KR537CW,100,12
+2026-11-26 17:59:54,agh_src8_hrc0.avi,KR642LU,99,11
