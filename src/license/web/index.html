@@ -3,219 +3,243 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Plates</title>
-<style>
-  :root {
-    --bg:#fafafa; --card:#fff; --fg:#09090b; --muted:#71717a; --border:#e4e4e7;
-    --subtle:#f4f4f5; --ok:#16a34a; --ok-bg:#dcfce7; --radius:10px;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#09090b; --card:#0f0f11; --fg:#fafafa; --muted:#a1a1aa; --border:#27272a;
-            --subtle:#18181b; --ok:#4ade80; --ok-bg:#14532d55; }
-  }
-  * { box-sizing:border-box; }
-  html, body { height:100%; }
-  body { margin:0; background:var(--bg); color:var(--fg);
-         font:14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
-         -webkit-font-smoothing:antialiased; }
-
-  .app { height:100vh; max-width:1440px; margin:0 auto; padding:24px 32px;
-         display:flex; flex-direction:column; gap:20px; }
-
-  header { display:flex; align-items:center; justify-content:space-between; gap:16px; }
-  h1 { font-size:20px; font-weight:600; letter-spacing:-.02em; margin:0; }
-  .sub { color:var(--muted); font-size:13px; margin:2px 0 0; }
-
-  .card { background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
-          box-shadow:0 1px 2px rgba(0,0,0,.04); }
-
-  .stats { display:grid; grid-template-columns:repeat(5, 1fr); gap:16px; }
-  .stat { padding:16px 20px; }
-  .stat .label { color:var(--muted); font-size:13px; font-weight:500; }
-  .stat .value { font-size:28px; font-weight:600; letter-spacing:-.02em; line-height:1.2; margin-top:4px;
-                 font-variant-numeric:tabular-nums; }
-
-  .main { flex:1; min-height:0; display:grid; grid-template-columns:1fr 1.15fr; gap:16px; }
-  .panel { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
-  .panel-head { display:flex; align-items:center; justify-content:space-between; gap:12px;
-                padding:14px 20px; border-bottom:1px solid var(--border); }
-  .panel-head h2 { font-size:14px; font-weight:600; margin:0; }
-  .panel-head .hint { color:var(--muted); font-size:12px; }
-  .search { position:relative; flex:1; max-width:280px; }
-  .search svg { position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--muted); pointer-events:none; }
-  .search input { width:100%; height:32px; padding:0 10px 0 32px; font:inherit; font-size:13px; color:var(--fg);
-                  background:var(--card); border:1px solid var(--border); border-radius:8px; outline:none; }
-  .search input:focus { border-color:var(--muted); }
-  .search input::placeholder { color:var(--muted); }
-
-  .video-wrap { flex:1; min-height:0; background:#000; display:flex; align-items:center; justify-content:center; }
-  .video-wrap img { width:100%; height:100%; object-fit:contain; display:block; }
-  .inview { display:flex; gap:8px; flex-wrap:wrap; align-items:center; padding:12px 20px;
-            border-top:1px solid var(--border); min-height:49px; }
-  .chip { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:13px; font-weight:600;
-          letter-spacing:.06em; padding:2px 10px; border-radius:6px; background:var(--subtle);
-          border:1px solid var(--border); }
-  .chip small { font-family:ui-sans-serif, system-ui, sans-serif; font-weight:500; letter-spacing:0;
-                color:var(--muted); margin-left:6px; }
-
-  .table-wrap { flex:1; min-height:0; overflow:auto; }
-  table { width:100%; border-collapse:collapse; }
-  thead th { position:sticky; top:0; background:var(--card); text-align:left; font-size:12px;
-             font-weight:500; color:var(--muted); padding:10px 20px; border-bottom:1px solid var(--border); }
-  tbody td { padding:8px 20px; border-bottom:1px solid var(--border); white-space:nowrap;
-             font-variant-numeric:tabular-nums; vertical-align:middle; }
-  tbody tr { cursor:pointer; }
-  tbody tr:hover { background:var(--subtle); }
-  td.plate { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-weight:600; letter-spacing:.06em; }
-  td.plate img { height:26px; max-width:96px; object-fit:contain; border-radius:4px; vertical-align:middle;
-                 margin-right:10px; background:var(--subtle); }
-  td.num, th.num { text-align:right; }
-  td.veh { color:var(--muted); text-transform:capitalize; }
-  .dir { font-size:12px; font-weight:500; padding:1px 8px; border-radius:999px; border:1px solid var(--border); }
-  .dir.in { color:var(--ok); background:var(--ok-bg); border-color:transparent; }
-
-  dialog { border:1px solid var(--border); border-radius:var(--radius); background:var(--card); color:var(--fg);
-           padding:0; width:min(720px, 92vw); box-shadow:0 10px 40px rgba(0,0,0,.25); }
-  dialog::backdrop { background:rgba(0,0,0,.5); }
-  .d-head { display:flex; align-items:center; justify-content:space-between; padding:14px 20px;
-            border-bottom:1px solid var(--border); }
-  .d-head h2 { margin:0; font:600 18px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:.06em; }
-  .d-close { font:inherit; font-size:20px; line-height:1; background:none; border:0; color:var(--muted); cursor:pointer; }
-  .d-body { padding:20px; display:grid; gap:16px; }
-  .d-body img { width:100%; max-height:52vh; object-fit:contain; background:#000; border-radius:8px; display:block; }
-  .d-body img.plate-img { max-height:90px; width:auto; max-width:100%; background:none; }
-  dl { display:grid; grid-template-columns:auto 1fr; gap:6px 20px; margin:0; font-size:13px; }
-  dt { color:var(--muted); }
-  dd { margin:0; text-transform:capitalize; }
-  .empty { color:var(--muted); text-align:center; padding:40px 20px !important; }
-  .muted { color:var(--muted); font-size:13px; }
-
-  @media (max-width:900px) {
-    .app { height:auto; padding:16px; }
-    .stats { grid-template-columns:repeat(2, 1fr); }
-    .main { grid-template-columns:1fr; }
-    .video-wrap { aspect-ratio:16/9; flex:none; }
-    .table-wrap { max-height:60vh; }
-    header { flex-wrap:wrap; }
-  }
-</style>
+<title>Number Plate Recognition</title>
+<script>
+  // Apply the saved theme before the page paints (no flash)
+  const t = localStorage.getItem("theme");
+  if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+</script>
+<link rel="stylesheet" href="/app.css">
 </head>
 <body>
-<div class="app">
-  <header>
-    <div>
-      <h1>License Plate Recognition</h1>
-      <p class="sub">Real-time detection, tracking and logging</p>
+<header class="topbar">
+  <div class="topbar-in">
+    <div class="brand">
+      <h1>Number Plate Recognition</h1>
+      <p>Vehicle detection, tracking and traffic records</p>
     </div>
-  </header>
+    <nav aria-label="Sections">
+      <a href="#overview">Overview</a>
+      <a href="#live">Live</a>
+      <a href="#upload">Upload</a>
+      <a href="#records">Records</a>
+      <a href="#analytics">Analytics</a>
+      <a href="#watchlist">Watchlist</a>
+    </nav>
+    <div class="spacer"></div>
+    <div class="status-line"><span class="dot" id="model-dot"></span><span id="model-text">Connecting…</span></div>
+    <button class="icon" id="theme" title="Theme: system" aria-label="Switch theme"></button>
+  </div>
+</header>
 
-  <section class="stats">
-    <div class="card stat"><div class="label">Vehicles logged</div><div class="value" id="n-total">0</div></div>
-    <div class="card stat"><div class="label">Incoming</div><div class="value" id="n-in">0</div></div>
-    <div class="card stat"><div class="label">Outgoing</div><div class="value" id="n-out">0</div></div>
-    <div class="card stat"><div class="label">In view</div><div class="value" id="n-live">0</div></div>
-    <div class="card stat"><div class="label">Processing speed</div><div class="value" id="fps">–</div></div>
+<div class="app">
+  <!-- ===================== Overview ===================== -->
+  <section class="section" id="overview" aria-labelledby="h-overview">
+    <div class="section-title"><h2 id="h-overview">Overview</h2><span class="hint" id="o-dir"></span></div>
+    <div class="stats">
+      <div class="card stat"><div class="label">Vehicle records</div><div class="value" id="o-total">0</div>
+        <div class="sub" id="o-unique"></div></div>
+      <div class="card stat"><div class="label" id="o-rec-label"></div><div class="value" id="o-rec">0</div>
+        <div class="sub" id="o-rec-sub"></div></div>
+      <div class="card stat"><div class="label" id="o-rev-label"></div><div class="value" id="o-rev">0</div>
+        <div class="sub"><button class="link" data-go="review">Check them</button></div></div>
+      <div class="card stat"><div class="label" id="o-unr-label"></div><div class="value" id="o-unr">0</div>
+        <div class="sub">Plate not found or not readable</div></div>
+    </div>
+    <div class="grid cols-2">
+      <div class="card">
+        <div class="card-head"><h3>Vehicle types</h3></div>
+        <div class="card-body"><div class="bars" id="o-types"></div></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Processing now</h3><a class="btn" href="#upload">Upload video</a></div>
+        <div class="card-body" id="o-running"></div>
+      </div>
+    </div>
   </section>
 
-  <section class="main">
-    <div class="card panel">
-      <div class="panel-head"><h2>Live feed</h2><span class="hint" id="src-name"></span></div>
-      <div class="video-wrap"><img src="/stream.mjpg" alt="live video"></div>
-      <div class="inview" id="live"></div>
+  <!-- ===================== Live ===================== -->
+  <section class="section" id="live" aria-labelledby="h-live">
+    <div class="section-title"><h2 id="h-live">Live</h2>
+      <select id="l-pick" aria-label="Choose what to watch"></select></div>
+    <div class="grid cols-3">
+      <div class="card">
+        <div class="video-wrap rounded" id="l-video"><span class="placeholder">Nothing is being processed</span></div>
+      </div>
+      <div class="grid" style="align-content:start">
+        <div class="card">
+          <div class="card-head"><h3>Now</h3><span class="hint" id="l-fps"></span></div>
+          <div class="card-body grid"><dl class="kv" id="l-info"></dl><div class="chips" id="l-chips"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Cameras</h3></div>
+          <div class="card-body grid">
+            <div id="cams"></div>
+            <form class="cam-form" id="cam-form">
+              <input name="name" placeholder="Name, e.g. Gate 1" aria-label="Camera name" required>
+              <input name="url" placeholder="rtsp://… or 0 for a webcam" aria-label="Stream URL or device number" required>
+              <button class="primary">Add</button>
+            </form>
+            <div class="error-text" id="cam-error" role="alert"></div>
+          </div>
+        </div>
+      </div>
     </div>
+  </section>
 
-    <div class="card panel">
-      <div class="panel-head">
-        <h2>Logged vehicles</h2>
-        <label class="search">
+  <!-- ===================== Upload ===================== -->
+  <section class="section" id="upload" aria-labelledby="h-upload">
+    <div class="section-title"><h2 id="h-upload">Upload and processing</h2>
+      <span class="hint">Videos are processed one at a time, in order</span></div>
+    <div class="grid">
+      <div class="card">
+        <div class="drop drop-strip" id="drop">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+               stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
+          <strong>Drop traffic videos here</strong>
+          <span class="muted small" id="u-hint">MP4, AVI, MOV, MKV, WebM</span>
+          <label class="btn primary">Choose files<input type="file" id="u-file" multiple hidden></label>
+          <div class="uploading hidden" id="u-progress">
+            <div class="small"><span id="u-name"></span> <span class="muted" id="u-pct"></span></div>
+            <div class="progress"><div id="u-bar" style="width:0"></div></div>
+          </div>
+          <div class="error-text" id="u-error" role="alert"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Processing results</h3><span class="hint">Newest first</span></div>
+        <div class="table-wrap scroll-y"><table class="jobs-table">
+          <thead><tr><th>Video</th><th>Status</th><th>Progress</th><th class="num">Speed</th><th class="num">Length</th>
+            <th class="num">Records</th><th></th></tr></thead>
+          <tbody id="jobs"></tbody>
+        </table></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== Records ===================== -->
+  <section class="section" id="records" aria-labelledby="h-records">
+    <div class="section-title records-title">
+      <h2 id="h-records">Traffic records</h2>
+      <div class="toolbar" id="filters">
+        <label class="search" title="Full or partial plate; also colour, make, type, direction">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
-          <input id="q" type="search" placeholder="Search plate, colour, make, in/out, date…"
-                 aria-label="Search logged vehicles" autocomplete="off" spellcheck="false">
+          <input type="search" name="q" placeholder="Search plate…" aria-label="Search number plate" autocomplete="off" spellcheck="false">
         </label>
-        <span class="hint" id="hint">Newest first</span>
+        <select name="type" aria-label="Vehicle type"><option value="">All types</option></select>
+        <select name="status" aria-label="Status"><option value="">All statuses</option>
+          <option value="recognized">Recognized</option><option value="review">Requires review</option>
+          <option value="unrecognized">Unrecognized</option></select>
+        <select name="source" aria-label="Source video"><option value="">All sources</option></select>
+        <input type="datetime-local" name="since" aria-label="From" title="From">
+        <input type="datetime-local" name="until" aria-label="To" title="To">
+        <select name="sort" aria-label="Sort"><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select>
+        <button type="button" id="f-clear">Clear</button>
       </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Time</th><th>Plate</th><th>Vehicle</th><th>Direction</th><th class="num">Confidence</th></tr></thead>
-          <tbody id="rows"></tbody>
-        </table>
+      <a class="btn primary" id="export" href="/api/export.csv" download>Export CSV</a>
+    </div>
+    <div class="card">
+      <div class="table-wrap"><table>
+        <thead><tr><th>Date and time</th><th>Number plate</th><th>Vehicle type</th><th class="num">Video time</th>
+          <th class="num">Confidence</th><th>Plate image</th><th>Vehicle image</th><th>Status</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table></div>
+      <div class="pager"><span id="r-count"></span>
+        <div class="btns"><button id="r-prev">Previous</button><button id="r-next">Next</button></div></div>
+    </div>
+  </section>
+
+  <!-- ===================== Analytics ===================== -->
+  <section class="section" id="analytics" aria-labelledby="h-analytics">
+    <div class="section-title"><h2 id="h-analytics">Analytics</h2>
+      <div class="toolbar" id="a-filters">
+        <select name="source" aria-label="Source video"><option value="">All sources</option></select>
+        <input type="datetime-local" name="since" aria-label="From" title="From">
+        <input type="datetime-local" name="until" aria-label="To" title="To">
+        <button type="button" id="a-clear">Clear</button>
+        <span class="hint" id="a-total"></span>
       </div>
+    </div>
+    <div class="grid cols-2">
+      <div class="card">
+        <div class="card-head"><h3>Vehicles by category</h3></div>
+        <div class="card-body"><div class="bars" id="a-types"></div></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Recognition status</h3></div>
+        <div class="card-body grid">
+          <div class="segbar" id="a-status" role="img"></div>
+          <div class="legend" id="a-status-legend"></div>
+          <dl class="kv" id="a-dir"></dl>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>Traffic over time</h3><span class="hint" id="a-bucket"></span></div>
+      <div class="card-body grid">
+        <div class="legend" id="a-legend"></div>
+        <svg class="chart" id="a-trend" height="240" role="img" aria-label="Vehicles over time by type"></svg>
+        <details><summary class="muted small">Show as table</summary>
+          <div class="table-wrap"><table id="a-table"></table></div></details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== Watchlist ===================== -->
+  <section class="section" id="watchlist" aria-labelledby="h-watchlist">
+    <div class="section-title"><h2 id="h-watchlist">Watchlist</h2>
+      <span class="hint">Blacklisted plates raise an alert when they are recorded</span></div>
+    <div class="card">
+      <div class="card-body grid">
+        <form class="toolbar" id="w-form">
+          <input name="plate" placeholder="Plate number" aria-label="Plate number" required class="mono">
+          <select name="kind" aria-label="List"><option value="block">Blacklist</option><option value="allow">Whitelist</option></select>
+          <input name="note" placeholder="Note (optional)" aria-label="Note" style="flex:1; min-width:200px">
+          <button class="primary">Add</button>
+        </form>
+        <div class="error-text" id="w-error" role="alert"></div>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Number plate</th><th>List</th><th>Note</th><th class="num">Times seen</th><th>Last seen</th><th></th></tr></thead>
+        <tbody id="w-rows"></tbody>
+      </table></div>
     </div>
   </section>
 </div>
 
-<dialog id="detail">
-  <div class="d-head"><h2 id="d-plate"></h2><button class="d-close" id="d-close" aria-label="Close">&times;</button></div>
+<dialog id="detail" aria-labelledby="d-title">
+  <div class="d-head"><h2 id="d-title"></h2><button class="icon" id="d-close" aria-label="Close">&times;</button></div>
   <div class="d-body">
-    <img id="d-vehicle" alt="vehicle">
-    <img id="d-plate-img" class="plate-img" alt="plate">
-    <dl id="d-info"></dl>
+    <div class="evidence">
+      <a id="d-vehicle-link" target="_blank" rel="noopener" title="Open full size"><img id="d-vehicle" alt="Vehicle"></a>
+      <div class="grid">
+        <a id="d-plate-link" class="plate-box" target="_blank" rel="noopener" title="Open full size"><img id="d-plate" alt="Number plate"></a>
+        <dl class="kv" id="d-info"></dl>
+      </div>
+    </div>
+    <form class="review-form" id="d-form">
+      <label class="field">Number plate<input name="plate" class="mono" maxlength="12" autocomplete="off"></label>
+      <label class="field">Status<select name="status">
+        <option value="recognized">Recognized</option><option value="review">Requires review</option>
+        <option value="unrecognized">Unrecognized</option></select></label>
+      <button class="primary">Save review</button>
+      <div class="spacer"></div>
+      <button type="button" id="d-block">Blacklist</button>
+      <button type="button" id="d-allow">Whitelist</button>
+      <button type="button" class="danger" id="d-delete">Delete</button>
+    </form>
   </div>
 </dialog>
 
-<script>
-const $ = id => document.getElementById(id);
-const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const img = p => p ? "/images/" + p.split("/").map(encodeURIComponent).join("/") : "";
-const looks = p => [p.colour, p.make, p.vehicle_type].filter(Boolean).join(" ") || "–";
-const dir = d => d ? `<span class="dir ${d}">${d === "in" ? "In" : "Out"}</span>` : `<span class="muted">–</span>`;
-let plates = [], shown = "";
+<dialog id="player" aria-labelledby="p-title">
+  <div class="d-head"><h2 id="p-title"></h2><button class="icon" id="p-close" aria-label="Close">&times;</button></div>
+  <div class="video-wrap" style="border-radius:0"><video id="p-video" controls playsinline></video></div>
+</dialog>
 
-async function refresh() {
-  try {
-    const q = $("q").value.trim();
-    const s = await (await fetch("/api/state?q=" + encodeURIComponent(q))).json();
-    if (q !== $("q").value.trim()) return;      // the search changed while waiting
-    $("src-name").textContent = s.source || "";
-    $("fps").textContent = s.done ? "–" : `${s.fps.toFixed(0)} fps`;
-    $("n-total").textContent = s.stats.total;
-    $("n-in").textContent = s.stats.incoming;
-    $("n-out").textContent = s.stats.outgoing;
-    $("n-live").textContent = s.active.length;
-
-    $("live").innerHTML = s.active.length
-      ? s.active.map(t => `<span class="chip">${esc(t.plate || "…")}<small>#${t.id}</small></span>`).join("")
-      : `<span class="muted">No plates in view</span>`;
-
-    $("hint").textContent = q ? `${s.plates.length}${s.plates.length >= 200 ? "+" : ""} found` : "Newest first";
-
-    // Rebuild the table only when the records change, so images do not flicker
-    const key = JSON.stringify(s.plates);
-    if (key === shown) return;
-    shown = key;
-    plates = s.plates;
-    $("rows").innerHTML = plates.length
-      ? plates.map((p, i) =>
-          `<tr data-i="${i}" title="${esc(p.time)} · ${esc(p.source)}"><td>${esc(p.time.slice(11))}</td>` +
-          `<td class="plate"><img src="${img(p.plate_image)}" alt="" loading="lazy">${esc(p.plate)}</td>` +
-          `<td class="veh">${esc(looks(p))}</td><td>${dir(p.direction)}</td>` +
-          `<td class="num">${p.confidence}%</td></tr>`).join("")
-      : `<tr><td colspan="5" class="empty">${q ? "No vehicles match this search" : "No vehicles logged yet"}</td></tr>`;
-  } catch (e) {}
-}
-
-$("rows").onclick = e => {
-  const tr = e.target.closest("tr[data-i]");
-  if (!tr) return;
-  const p = plates[tr.dataset.i];
-  $("d-plate").textContent = p.plate;
-  $("d-vehicle").src = img(p.vehicle_image);
-  $("d-plate-img").src = img(p.plate_image);
-  const info = [["Time", p.time], ["Direction", p.direction ?? "unknown"], ["Type", p.vehicle_type ?? "unknown"],
-                ["Colour", p.colour ?? "unknown"], ["Make", p.make ?? "unknown"],
-                ["Confidence", `${p.confidence}% (${p.readings} readings)`], ["Source", p.source]];
-  $("d-info").innerHTML = info.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
-  $("detail").showModal();
-};
-let typing;
-$("q").oninput = () => { clearTimeout(typing); typing = setTimeout(refresh, 200); };
-$("q").onkeydown = e => { if (e.key === "Escape") { $("q").value = ""; refresh(); } };
-$("d-close").onclick = () => $("detail").close();
-$("detail").onclick = e => { if (e.target === $("detail")) $("detail").close(); };
-
-refresh();
-setInterval(refresh, 500);
-</script>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="tooltip hidden" id="tip"></div>
+<script src="/app.js"></script>
 </body>
 </html>
