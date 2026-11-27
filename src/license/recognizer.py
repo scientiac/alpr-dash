@@ -3,6 +3,7 @@
 The detector (YOLO) returns plate boxes; the OCR model reads one plate crop.
 Both are ONNX models that run locally on the CPU."""
 
+import cv2
 import numpy as np
 import onnxruntime as ort
 from fast_alpr import ALPR
@@ -36,7 +37,11 @@ class Recognizer:
         return boxes
 
     def read(self, frame, box):
-        """Read one plate. Returns (text, confidence 0-1) or None."""
+        """Read one plate. Returns (text, confidence 0-1) or None.
+
+        Clear plates are read as they are. When the model is unsure (blur,
+        shadow, glare, a small or angled plate), the crop is enhanced and read
+        again, and the better of the two readings is kept."""
         x1, y1, x2, y2 = box
         # A little margin so edge characters are not cut off
         mx, my = int(0.04 * (x2 - x1)), int(0.10 * (y2 - y1))
@@ -44,6 +49,15 @@ class Recognizer:
         crop = frame[max(0, y1 - my):min(h, y2 + my), max(0, x1 - mx):min(w, x2 + mx)]
         if crop.size == 0:
             return None
+        first = self._ocr(crop)
+        if first and first[1] >= config.ENHANCE_BELOW:
+            return first
+        second = self._ocr(enhance(crop))
+        if first is None or (second and second[1] > first[1]):
+            return second
+        return first
+
+    def _ocr(self, crop):
         res = self._alpr.ocr.predict(crop)
         if res is None or not res.text:
             return None
@@ -54,3 +68,20 @@ class Recognizer:
             return None
         text = "".join(ch for ch, _ in kept)
         return text, float(np.mean([p for _, p in kept]))
+
+
+_CLAHE = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4))
+
+
+def enhance(crop):
+    """Make a hard-to-read plate clearer: enlarge small crops, even out the
+    contrast (CLAHE on brightness only, so colours stay) and sharpen."""
+    h, w = crop.shape[:2]
+    if h < 40:
+        k = 40 / h
+        crop = cv2.resize(crop, (round(w * k), 40), interpolation=cv2.INTER_CUBIC)
+    lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB)
+    lab[..., 0] = _CLAHE.apply(lab[..., 0])
+    out = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    blur = cv2.GaussianBlur(out, (0, 0), 1.2)
+    return cv2.addWeighted(out, 1.6, blur, -0.6, 0)

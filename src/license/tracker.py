@@ -1,8 +1,10 @@
-"""Follow each plate across frames and combine its OCR readings by voting."""
+"""Follow each plate across frames and combine its OCR readings by voting.
 
-from collections import defaultdict
+Times (first_seen, last_seen) are seconds from the start of the video or stream.
+"""
+
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
 
 import numpy as np
 
@@ -41,6 +43,27 @@ def agreement(reads, text):
     return total / len(reads)
 
 
+def direction(history, frame_height):
+    """'in', 'out' or None, from how a box moved: one that grows (or moves
+    down the picture) is coming towards the camera."""
+    frames = sorted(history)
+    if len(frames) < 4:
+        return None
+    k = max(2, len(frames) // 5)              # average a few boxes at each end
+    start = np.mean([history[f] for f in frames[:k]], axis=0)
+    end = np.mean([history[f] for f in frames[-k:]], axis=0)
+    growth = (end[2] - end[0]) / max(start[2] - start[0], 1)
+    shift = ((end[1] + end[3]) - (start[1] + start[3])) / 2 / frame_height
+    if growth >= config.MIN_GROWTH or (growth > 1 / config.MIN_GROWTH and shift >= config.MIN_SHIFT):
+        towards = True
+    elif growth <= 1 / config.MIN_GROWTH or shift <= -config.MIN_SHIFT:
+        towards = False
+    else:
+        return None
+    other = "out" if config.TOWARDS_CAMERA == "in" else "in"
+    return config.TOWARDS_CAMERA if towards else other
+
+
 def iou(a, b):
     ix = max(0, min(a[2], b[2]) - max(a[0], b[0]))
     iy = max(0, min(a[3], b[3]) - max(a[1], b[1]))
@@ -53,18 +76,36 @@ def iou(a, b):
 class Track:
     id: int
     box: tuple            # x1, y1, x2, y2
-    first_seen: datetime
+    first_seen: float
     last_frame: int
     hits: int = 1
     last_ocr: int = -10**9
-    last_seen: datetime | None = None
+    last_seen: float = 0.0
     reads: list = field(default_factory=list)
     history: dict = field(default_factory=dict)   # frame index -> box
-    best: tuple | None = None    # (score, frame copy, box, frame index) of the clearest reading
+    best: tuple | None = None     # (score, frame copy, box, frame index) of the clearest reading
+    largest: tuple | None = None  # (area, frame copy, box, frame index), for unreadable plates
+    vehicles: Counter = field(default_factory=Counter)   # vehicle track id -> frames together
 
     def see(self, frame_idx, when, box):
         self.box, self.last_frame, self.last_seen = box, frame_idx, when
         self.history[frame_idx] = box
+
+    def keep_photo(self, frame, frame_idx):
+        """Remember the frame where the plate looked biggest, in case it is never read."""
+        if self.best is not None:
+            return
+        area = (self.box[2] - self.box[0]) * (self.box[3] - self.box[1])
+        if self.largest is None or area > 1.1 * self.largest[0]:
+            self.largest = (area, frame.copy(), self.box, frame_idx)
+
+    def photo(self):
+        """(frame, box, frame index) for the record's photos."""
+        snap = self.best or self.largest
+        return snap[1:] if snap else None
+
+    def vehicle_id(self):
+        return self.vehicles.most_common(1)[0][0] if self.vehicles else None
 
     def result(self):
         return vote(self.reads)
@@ -82,25 +123,10 @@ class Track:
         score = (round(conf, 2), box[2] - box[0])     # most certain, then largest
         if self.best is None or score > self.best[0]:
             self.best = (score, frame.copy(), box, self.last_frame)
+            self.largest = None
 
     def direction(self, frame_height):
-        """'in', 'out' or None, from how the plate moved while it was tracked."""
-        frames = sorted(self.history)
-        if len(frames) < 4:
-            return None
-        k = max(2, len(frames) // 5)              # average a few boxes at each end
-        start = np.mean([self.history[f] for f in frames[:k]], axis=0)
-        end = np.mean([self.history[f] for f in frames[-k:]], axis=0)
-        growth = (end[2] - end[0]) / max(start[2] - start[0], 1)
-        shift = ((end[1] + end[3]) - (start[1] + start[3])) / 2 / frame_height
-        if growth >= config.MIN_GROWTH or (growth > 1 / config.MIN_GROWTH and shift >= config.MIN_SHIFT):
-            towards = True
-        elif growth <= 1 / config.MIN_GROWTH or shift <= -config.MIN_SHIFT:
-            towards = False
-        else:
-            return None
-        other = "out" if config.TOWARDS_CAMERA == "in" else "in"
-        return config.TOWARDS_CAMERA if towards else other
+        return direction(self.history, frame_height)
 
     def is_valid(self):
         text, conf, n = self.result()
@@ -108,6 +134,18 @@ class Track:
                 and n >= config.MIN_READS
                 and config.MIN_LEN <= len(text) <= config.MAX_LEN
                 and agreement(self.reads, text) >= config.MIN_AGREE)
+
+    def status(self):
+        """'recognized', 'review' (readable but a person should check it),
+        'unrecognized' (seen often but never read reliably) or None (noise)."""
+        if self.is_valid():
+            text, conf, n = self.result()
+            sure = (conf >= config.REVIEW_CONF and n >= config.REVIEW_READS
+                    and agreement(self.reads, text) >= config.REVIEW_AGREE)
+            return "recognized" if sure else "review"
+        if self.hits >= config.UNREADABLE_MIN_HITS and self.photo() is not None:
+            return "unrecognized"
+        return None
 
 
 class Tracker:

@@ -1,13 +1,13 @@
-"""Find the vehicle a plate belongs to and describe it: type, colour and make.
+"""Vehicles: find them in every frame, and describe each recorded one.
 
-This runs once per logged plate (not on every frame), so the slower models
-here do not affect the live video.
-
-- Type: an object detector trained on COCO (RF-DETR) finds cars, motorcycles,
-  buses and trucks; the vehicle is the one whose box contains the plate.
-- Colour and make: a CLIP model compares the vehicle photo with short text
-  descriptions ("a photo of a red car", "a photo of a Toyota car", ...) and
-  picks the closest. No training is needed; the lists live in config.py.
+- VehicleDetector: an object detector trained on COCO (RF-DETR nano) finds
+  cars, motorcycles, buses and trucks. It runs on every VEHICLE_EVERY-th
+  frame and feeds the ByteTrack tracker.
+- Describer: runs once per record, in the background, on the vehicle photo.
+  A CLIP model compares the photo with short text descriptions ("a photo of
+  a red car", "a photo of a Toyota car", ...) and picks the closest. This
+  gives the colour and the make, and tells vans from cars (COCO has no van
+  class). No training is needed; the lists live in config.py.
 """
 
 from dataclasses import dataclass
@@ -24,6 +24,9 @@ from . import config
 
 MAKE_PROMPTS = ("a photo of a {make}.", "a photo of a {make} {kind}.", "a {make} {kind} on the road.")
 COLOUR_PROMPT = "a photo of a {colour} {kind}."
+VAN_PROMPTS = {"other": ("a photo of a car.", "a photo of a passenger car.",
+                         "a photo of a truck.", "a photo of a lorry."),
+               "van": ("a photo of a van.", "a photo of a delivery van.", "a photo of a minivan.")}
 
 
 @dataclass
@@ -35,9 +38,9 @@ class Vehicle:
     make_conf: float = 0.0
 
 
-def _session_options():
+def session_options(threads=config.THREADS):
     opts = ort.SessionOptions()
-    opts.intra_op_num_threads = config.THREADS
+    opts.intra_op_num_threads = threads
     opts.inter_op_num_threads = 1
     return opts
 
@@ -54,12 +57,43 @@ def _download(repo, name):
         return hf_hub_download(repo, name)
 
 
+class VehicleDetector:
+    def __init__(self):
+        # A low threshold on purpose: ByteTrack uses weak detections too
+        self._model = create_detector(config.VEHICLE_MODEL, conf_thresh=config.TRACK_LOW,
+                                      sess_options=session_options(config.VEHICLE_THREADS))
+
+    def detect(self, frame):
+        """List of (box, confidence, label) for the vehicle classes we count."""
+        h, w = frame.shape[:2]
+        out = []
+        for d in self._model.predict(frame):
+            if d.label in config.VEHICLE_TYPES:
+                b = d.bounding_box
+                box = (max(0, int(b.x1)), max(0, int(b.y1)), min(w, int(b.x2)), min(h, int(b.y2)))
+                if box[2] - box[0] > 8 and box[3] - box[1] > 8:
+                    out.append((box, float(d.confidence), d.label))
+        return out
+
+    def find(self, frame, plate_box):
+        """Box and type of the vehicle that carries the plate, or (None, None).
+        Used when the tracker had no vehicle for a plate."""
+        cx, cy = (plate_box[0] + plate_box[2]) / 2, (plate_box[1] + plate_box[3]) / 2
+        best = None
+        for box, conf, label in self.detect(frame):
+            if conf >= config.TRACK_HIGH and box[0] <= cx <= box[2] and box[1] <= cy <= box[3]:
+                area = (box[2] - box[0]) * (box[3] - box[1])
+                if best is None or area < best[0]:       # innermost vehicle wins
+                    best = (area, box, label)
+        return (best[1], best[2]) if best else (None, None)
+
+
 class Clip:
     """Zero-shot image classifier: picks the text label closest to an image."""
 
     def __init__(self):
         paths = [_download(config.CLIP_REPO, f) for f in config.CLIP_FILES]
-        opts = _session_options()
+        opts = session_options()
         self._vision = ort.InferenceSession(paths[0], opts, providers=["CPUExecutionProvider"])
         self._text = ort.InferenceSession(paths[1], opts, providers=["CPUExecutionProvider"])
         self._tok = Tokenizer.from_file(paths[2])
@@ -83,7 +117,7 @@ class Clip:
         pixels = (img.astype(np.float32) / 255).transpose(2, 0, 1)[None]
         return _unit(self._vision.run(None, {"pixel_values": pixels})[0][0])
 
-    def labels(self, names, prompts, kind):
+    def labels(self, names, prompts, kind=""):
         """Text embedding per label, averaged over several phrasings."""
         return np.stack([_unit(self.embed_text([p.format(make=n, colour=n, kind=kind)
                                                 for p in prompts]).mean(0))
@@ -97,38 +131,29 @@ def _pick(names, label_emb, image_emb):
     return names[i], float(p[i])
 
 
-class VehicleDescriber:
+class Describer:
     def __init__(self):
-        self._detector = create_detector(config.VEHICLE_MODEL, conf_thresh=config.VEHICLE_CONF,
-                                         sess_options=_session_options())
         self._clip = Clip()
-        makes = {"car": config.MAKES, "motorcycle": config.MOTORCYCLE_MAKES,
+        makes = {"car": config.MAKES, "van": config.MAKES, "motorcycle": config.MOTORCYCLE_MAKES,
                  "bus": config.BUS_TRUCK_MAKES, "truck": config.BUS_TRUCK_MAKES}
-        # Text side is fixed, so it is computed once here
+        # The text side is fixed, so it is computed once here
         self._makes = {k: (names, self._clip.labels(names, MAKE_PROMPTS, k))
                        for k, names in makes.items()}
         self._colours = {k: self._clip.labels(config.COLOURS, [COLOUR_PROMPT], k) for k in makes}
+        self._van = (list(VAN_PROMPTS),
+                     np.stack([_unit(self._clip.embed_text(p).mean(0)) for p in VAN_PROMPTS.values()]))
 
-    def find(self, frame, plate_box):
-        """Box and type of the vehicle that carries the plate, or (None, None)."""
-        cx, cy = (plate_box[0] + plate_box[2]) / 2, (plate_box[1] + plate_box[3]) / 2
-        best = None
-        for d in self._detector.predict(frame):
-            if d.label not in config.VEHICLE_TYPES:
-                continue
-            b = d.bounding_box
-            if b.x1 <= cx <= b.x2 and b.y1 <= cy <= b.y2:
-                area = (b.x2 - b.x1) * (b.y2 - b.y1)
-                if best is None or area < best[0]:       # innermost vehicle wins
-                    best = (area, (max(0, b.x1), max(0, b.y1), b.x2, b.y2), d.label)
-        return (best[1], best[2]) if best else (None, None)
-
-    def describe(self, frame, plate_box):
-        box, kind = self.find(frame, plate_box)
-        if box is None:
-            return Vehicle()
-        x1, y1, x2, y2 = box
-        emb = self._clip.embed_image(frame[y1:y2, x1:x2])
+    def describe(self, frame, box, kind):
+        """Type, colour and make of the vehicle in `box`."""
+        x1, y1, x2, y2 = (int(v) for v in box)
+        crop = frame[max(0, y1):y2, max(0, x1):x2]
+        if crop.size == 0:
+            return Vehicle(box, kind)
+        emb = self._clip.embed_image(crop)
+        if kind in ("car", "truck"):
+            name, p = _pick(*self._van, emb)
+            if name == "van" and p >= config.VAN_MIN_CONF:
+                kind = "van"
         colour, _ = _pick(config.COLOURS, self._colours[kind], emb)
         make, conf = _pick(*self._makes[kind], emb)
-        return Vehicle(box, kind, colour, make if conf >= config.MAKE_MIN_CONF else None, conf)
+        return Vehicle(tuple(box), kind, colour, make if conf >= config.MAKE_MIN_CONF else None, conf)
