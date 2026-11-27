@@ -41,6 +41,12 @@
                 padding:14px 20px; border-bottom:1px solid var(--border); }
   .panel-head h2 { font-size:14px; font-weight:600; margin:0; }
   .panel-head .hint { color:var(--muted); font-size:12px; }
+  .search { position:relative; flex:1; max-width:280px; }
+  .search svg { position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--muted); pointer-events:none; }
+  .search input { width:100%; height:32px; padding:0 10px 0 32px; font:inherit; font-size:13px; color:var(--fg);
+                  background:var(--card); border:1px solid var(--border); border-radius:8px; outline:none; }
+  .search input:focus { border-color:var(--muted); }
+  .search input::placeholder { color:var(--muted); }
 
   .video-wrap { flex:1; min-height:0; background:#000; display:flex; align-items:center; justify-content:center; }
   .video-wrap img { width:100%; height:100%; object-fit:contain; display:block; }
@@ -119,7 +125,16 @@
     </div>
 
     <div class="card panel">
-      <div class="panel-head"><h2>Logged vehicles</h2><span class="hint">Newest first · click a row for photos</span></div>
+      <div class="panel-head">
+        <h2>Logged vehicles</h2>
+        <label class="search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+          <input id="q" type="search" placeholder="Search plate, colour, make, in/out, date…"
+                 aria-label="Search logged vehicles" autocomplete="off" spellcheck="false">
+        </label>
+        <span class="hint" id="hint">Newest first</span>
+      </div>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Time</th><th>Plate</th><th>Vehicle</th><th>Direction</th><th class="num">Confidence</th></tr></thead>
@@ -149,7 +164,9 @@ let plates = [], shown = "";
 
 async function refresh() {
   try {
-    const s = await (await fetch("/api/state")).json();
+    const q = $("q").value.trim();
+    const s = await (await fetch("/api/state?q=" + encodeURIComponent(q))).json();
+    if (q !== $("q").value.trim()) return;      // the search changed while waiting
     $("src-name").textContent = s.source || "";
     $("fps").textContent = s.done ? "–" : `${s.fps.toFixed(0)} fps`;
     $("n-total").textContent = s.stats.total;
@@ -160,6 +177,8 @@ async function refresh() {
     $("live").innerHTML = s.active.length
       ? s.active.map(t => `<span class="chip">${esc(t.plate || "…")}<small>#${t.id}</small></span>`).join("")
       : `<span class="muted">No plates in view</span>`;
+
+    $("hint").textContent = q ? `${s.plates.length}${s.plates.length >= 200 ? "+" : ""} found` : "Newest first";
 
     // Rebuild the table only when the records change, so images do not flicker
     const key = JSON.stringify(s.plates);
@@ -172,7 +191,7 @@ async function refresh() {
           `<td class="plate"><img src="${img(p.plate_image)}" alt="" loading="lazy">${esc(p.plate)}</td>` +
           `<td class="veh">${esc(looks(p))}</td><td>${dir(p.direction)}</td>` +
           `<td class="num">${p.confidence}%</td></tr>`).join("")
-      : `<tr><td colspan="5" class="empty">No vehicles logged yet</td></tr>`;
+      : `<tr><td colspan="5" class="empty">${q ? "No vehicles match this search" : "No vehicles logged yet"}</td></tr>`;
   } catch (e) {}
 }
 
@@ -189,6 +208,9 @@ $("rows").onclick = e => {
   $("d-info").innerHTML = info.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
   $("detail").showModal();
 };
+let typing;
+$("q").oninput = () => { clearTimeout(typing); typing = setTimeout(refresh, 200); };
+$("q").onkeydown = e => { if (e.key === "Escape") { $("q").value = ""; refresh(); } };
 $("d-close").onclick = () => $("detail").close();
 $("detail").onclick = e => { if (e.target === $("detail")) $("detail").close(); };
 

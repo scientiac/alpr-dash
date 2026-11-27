@@ -84,10 +84,23 @@ class Database:
             r = self._db.execute("SELECT * FROM sightings WHERE id = ?", (row_id,)).fetchone()
         return dict(r) if r else None
 
-    def recent(self, limit=200):
+    def recent(self, limit=200, query=""):
+        """Newest records first. With a query, every word must match something:
+        part of the plate, time or source, the start of the make, or exactly
+        the colour, type or direction. E.g. "blue opel in", "KR70", "2026-11-27"."""
+        where, args = [], []
+        for word in query.split():
+            # Plates are stored without spaces; escape LIKE wildcards
+            w = word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            where.append("(plate LIKE ? ESCAPE '\\' OR time LIKE ? ESCAPE '\\' "
+                         "OR source LIKE ? ESCAPE '\\' OR make LIKE ? ESCAPE '\\' "
+                         "OR colour = ? COLLATE NOCASE OR vehicle_type = ? COLLATE NOCASE "
+                         "OR direction = ? COLLATE NOCASE)")
+            args += [f"%{w}%", f"%{w}%", f"%{w}%", f"{w}%", word, word, word]
+        sql = ("SELECT * FROM sightings" + (" WHERE " + " AND ".join(where) if where else "")
+               + " ORDER BY time DESC, id DESC LIMIT ?")
         with self._lock:
-            rows = self._db.execute(
-                "SELECT * FROM sightings ORDER BY time DESC, id DESC LIMIT ?", (limit,)).fetchall()
+            rows = self._db.execute(sql, args + [limit]).fetchall()
         return [dict(r) for r in rows]
 
     def stats(self):

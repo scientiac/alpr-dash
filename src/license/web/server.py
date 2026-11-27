@@ -4,7 +4,7 @@ Routes:
   /             the dashboard page
   /stream.mjpg  live annotated video (MJPEG)
   /api/state    JSON with the current source, speed, live tracks, totals and
-                the most recent records from the database
+                the most recent records from the database (?q=... to search them)
   /images/...   saved plate and vehicle photos
 """
 
@@ -12,7 +12,7 @@ import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import parse_qs, unquote, urlsplit
 
 INDEX = (Path(__file__).parent / "index.html").read_bytes()
 RECENT = 200        # records sent to the page
@@ -40,10 +40,10 @@ class LiveState:
             self.info["done"] = True
             self.cond.notify_all()
 
-    def to_json(self):
+    def to_json(self, query=""):
         with self.cond:
             info = dict(self.info)
-        info["plates"] = self.db.recent(RECENT)
+        info["plates"] = self.db.recent(RECENT, query)
         info["stats"] = self.db.stats()
         return json.dumps(info).encode()
 
@@ -62,11 +62,13 @@ def make_handler(state: LiveState):
             self.wfile.write(body)
 
         def do_GET(self):
-            path = self.path.split("?")[0]
+            url = urlsplit(self.path)
+            path = url.path
             if path == "/":
                 self._send(INDEX, "text/html; charset=utf-8")
             elif path == "/api/state":
-                self._send(state.to_json(), "application/json")
+                query = parse_qs(url.query).get("q", [""])[0][:200]
+                self._send(state.to_json(query), "application/json")
             elif path == "/stream.mjpg":
                 self._stream()
             elif path.startswith("/images/"):
