@@ -9,8 +9,10 @@ authors = [
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "fast-alpr[onnx]>=0.4.0",
+    "huggingface-hub>=2.5.0",
     "numpy>=2.5.5",
-    "opencv-python>=5.1.0.95",
+    "opencv-python-headless>=5.1.0.95",
+    "tokenizers>=0.23.3",
 ]
 
 [project.scripts]
