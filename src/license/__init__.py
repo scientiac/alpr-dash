@@ -5,7 +5,7 @@ Usage:
   license <file|url>      process one video file or stream
 Options:
   --fast                  do not slow video files down to real-time speed
-  --no-web                run without the dashboard (console + CSV only)
+  --no-web                run without the dashboard (console + database only)
   --port N                dashboard port (default 8000)
 """
 
@@ -13,8 +13,8 @@ import sys
 import time
 
 from . import config, sources
+from .db import Database
 from .pipeline import process
-from .store import PlateStore
 
 
 def main() -> None:
@@ -32,21 +32,26 @@ def main() -> None:
     realtime = "--fast" not in argv
 
     jobs = sources.resolve(args)
-    store = PlateStore(config.LOG_FILE)
+    db = Database()
+    print(f"Recording to {config.DB_FILE} (photos in {config.IMAGE_DIR})")
 
     state = None
     if web:
         from .web.server import LiveState, serve
-        state = LiveState(store)
+        state = LiveState(db)
         serve(state, config.HOST, port)
 
     print("Loading models...")
     from .recognizer import Recognizer
+    from .recorder import Recorder
+    from .vehicles import VehicleDescriber
     recognizer = Recognizer()
+    recorder = Recorder(db, VehicleDescriber())
 
     try:
         for src in jobs:
-            process(src, recognizer, store, state, realtime)
+            process(src, recognizer, recorder, state, realtime)
+        recorder.close()          # finish the last records before saying done
         if state is not None:
             state.finish()
             print("Done. Dashboard stays open, press Ctrl+C to quit.")
@@ -55,7 +60,8 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        store.close()
+        recorder.close()
+        db.close()
 
 
 if __name__ == "__main__":

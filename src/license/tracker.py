@@ -57,7 +57,14 @@ class Track:
     last_frame: int
     hits: int = 1
     last_ocr: int = -10**9
+    last_seen: datetime | None = None
     reads: list = field(default_factory=list)
+    history: dict = field(default_factory=dict)   # frame index -> box
+    best: tuple | None = None    # (score, frame copy, box, frame index) of the clearest reading
+
+    def see(self, frame_idx, when, box):
+        self.box, self.last_frame, self.last_seen = box, frame_idx, when
+        self.history[frame_idx] = box
 
     def result(self):
         return vote(self.reads)
@@ -65,12 +72,35 @@ class Track:
     def needs_ocr(self, frame_idx):
         return frame_idx - self.last_ocr >= config.OCR_EVERY
 
-    def add_read(self, text, conf):
+    def add_read(self, text, conf, frame, box):
         """Keep only the most confident readings: early ones of a far-away
-        plate are often cut short, later close-up ones are sharper."""
+        plate are often cut short, later close-up ones are sharper.
+        The frame of the clearest reading is kept for the photos."""
         self.reads.append((text, conf))
         self.reads.sort(key=lambda r: r[1], reverse=True)
         del self.reads[config.MAX_READS:]
+        score = (round(conf, 2), box[2] - box[0])     # most certain, then largest
+        if self.best is None or score > self.best[0]:
+            self.best = (score, frame.copy(), box, self.last_frame)
+
+    def direction(self, frame_height):
+        """'in', 'out' or None, from how the plate moved while it was tracked."""
+        frames = sorted(self.history)
+        if len(frames) < 4:
+            return None
+        k = max(2, len(frames) // 5)              # average a few boxes at each end
+        start = np.mean([self.history[f] for f in frames[:k]], axis=0)
+        end = np.mean([self.history[f] for f in frames[-k:]], axis=0)
+        growth = (end[2] - end[0]) / max(start[2] - start[0], 1)
+        shift = ((end[1] + end[3]) - (start[1] + start[3])) / 2 / frame_height
+        if growth >= config.MIN_GROWTH or (growth > 1 / config.MIN_GROWTH and shift >= config.MIN_SHIFT):
+            towards = True
+        elif growth <= 1 / config.MIN_GROWTH or shift <= -config.MIN_SHIFT:
+            towards = False
+        else:
+            return None
+        other = "out" if config.TOWARDS_CAMERA == "in" else "in"
+        return config.TOWARDS_CAMERA if towards else other
 
     def is_valid(self):
         text, conf, n = self.result()
@@ -109,13 +139,14 @@ class Tracker:
                 continue
             used_boxes.add(bi)
             used_tracks.add(t.id)
-            t.box, t.last_frame = boxes[bi], frame_idx
+            t.see(frame_idx, when, boxes[bi])
             t.hits += 1
             matched.append((t, boxes[bi]))
 
         for bi, b in enumerate(boxes):
             if bi not in used_boxes:
                 t = Track(self._next_id, b, when, frame_idx)
+                t.see(frame_idx, when, b)
                 self._next_id += 1
                 self.tracks.append(t)
                 matched.append((t, b))

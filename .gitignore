@@ -10,4 +10,4 @@ wheels/
 .venv
 
 # Runtime output
-plates.csv
+data/

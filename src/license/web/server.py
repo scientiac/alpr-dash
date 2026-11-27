@@ -3,22 +3,26 @@
 Routes:
   /             the dashboard page
   /stream.mjpg  live annotated video (MJPEG)
-  /api/state    JSON with the current source, speed, live tracks and logged plates
+  /api/state    JSON with the current source, speed, live tracks, totals and
+                the most recent records from the database
+  /images/...   saved plate and vehicle photos
 """
 
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import unquote
 
 INDEX = (Path(__file__).parent / "index.html").read_bytes()
+RECENT = 200        # records sent to the page
 
 
 class LiveState:
     """Shared between the processing thread and the web server."""
 
-    def __init__(self, store):
-        self.store = store
+    def __init__(self, db):
+        self.db = db
         self.cond = threading.Condition()
         self.jpeg = None
         self.frame_no = 0
@@ -39,7 +43,8 @@ class LiveState:
     def to_json(self):
         with self.cond:
             info = dict(self.info)
-        info["plates"] = self.store.snapshot()
+        info["plates"] = self.db.recent(RECENT)
+        info["stats"] = self.db.stats()
         return json.dumps(info).encode()
 
 
@@ -48,11 +53,11 @@ def make_handler(state: LiveState):
         def log_message(self, *args):   # keep the console quiet
             pass
 
-        def _send(self, body, ctype):
+        def _send(self, body, ctype, cache="no-store"):
             self.send_response(200)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
+            self.send_header("Cache-Control", cache)
             self.end_headers()
             self.wfile.write(body)
 
@@ -64,8 +69,19 @@ def make_handler(state: LiveState):
                 self._send(state.to_json(), "application/json")
             elif path == "/stream.mjpg":
                 self._stream()
+            elif path.startswith("/images/"):
+                self._image(unquote(path[len("/images/"):]))
             else:
                 self.send_error(404)
+
+        def _image(self, rel):
+            root = state.db.image_dir.resolve()
+            file = (root / rel).resolve()
+            if file.suffix != ".jpg" or root not in file.parents or not file.is_file():
+                self.send_error(404)
+                return
+            # Every saved photo gets a new name, so it can be cached for good
+            self._send(file.read_bytes(), "image/jpeg", "max-age=31536000, immutable")
 
         def _stream(self):
             self.send_response(200)

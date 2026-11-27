@@ -1,15 +1,18 @@
 """The processing loop: read frames, find and read plates, track, log, draw."""
 
+import itertools
 import time
 from datetime import datetime, timedelta
 
 import cv2
 
 from . import config
+from .recorder import Sighting
 from .sources import LatestFrame, display_name, is_stream
 from .tracker import Tracker
 
 GREEN, GREY = (80, 200, 60), (170, 170, 170)
+_runs = itertools.count(1)
 
 
 def draw(frame, tracks, frame_idx):
@@ -37,14 +40,17 @@ def encode(frame):
     return buf.tobytes() if ok else None
 
 
-def log_finished(tracks, store, name):
+def log_finished(tracks, recorder, name, run):
+    """Hand every confirmed plate to the recorder (which works in the background)."""
     for t in tracks:
-        if t.is_valid():
+        if t.is_valid() and t.best is not None:
             text, conf, n = t.result()
-            store.add(t.first_seen, name, text, conf, n)
+            _, frame, box, idx = t.best
+            recorder.add(Sighting(run, name, text, conf, n, t.first_seen, t.last_seen,
+                                  t.direction(frame.shape[0]), frame, idx, box, t.history))
 
 
-def process(src, recognizer, store, state=None, realtime=True):
+def process(src, recognizer, recorder, state=None, realtime=True):
     """Run the whole pipeline on one video file or stream."""
     name = display_name(src)
     stream = is_stream(src)
@@ -59,6 +65,7 @@ def process(src, recognizer, store, state=None, realtime=True):
     start = datetime.now()
     t0 = time.perf_counter()
     tracker = Tracker()
+    run = next(_runs)
     frame_idx, frame_time, last, behind = 0, 0.0, time.perf_counter(), False
 
     try:
@@ -81,8 +88,8 @@ def process(src, recognizer, store, state=None, realtime=True):
                         r = recognizer.read(frame, box)
                         if (r and r[1] >= config.MIN_CONF
                                 and config.MIN_LEN <= len(r[0]) <= config.MAX_LEN):
-                            t.add_read(*r)
-                log_finished(finished, store, name)
+                            t.add_read(*r, frame, box)
+                log_finished(finished, recorder, name, run)
 
             now = time.perf_counter()
             frame_time = 0.95 * frame_time + 0.05 * (now - last) if frame_idx else 1 / video_fps
@@ -104,7 +111,7 @@ def process(src, recognizer, store, state=None, realtime=True):
                 if wait > 0:
                     time.sleep(wait)
     finally:
-        log_finished(tracker.flush(), store, name)
+        log_finished(tracker.flush(), recorder, name, run)
         if stream:
             reader.stop()
         cap.release()
