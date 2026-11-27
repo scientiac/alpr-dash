@@ -209,6 +209,7 @@ Running the program opens a dashboard at `http://127.0.0.1:8000`. It shows:
 - the number of recorded vehicles, how many came in and went out, and the plates in view;
 - the table of recorded vehicles from the database, newest first, with a small plate photo, the vehicle description and the direction;
 - clicking a row opens the vehicle photo, the plate photo and all details.
+- a search box above the table. Every word typed must match the record: part of the plate, the date or time, or the source, the start of the make, or exactly the colour, type or direction. For example `blue opel in`, `KR70` or `2026-11-27`. The search runs in the database, so it covers all records, not only the newest ones shown, and the results keep updating while vehicles are recorded.
 
 = Installation
 
