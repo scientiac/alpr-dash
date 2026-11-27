@@ -246,3 +246,4 @@ select[name=source] { max-width:220px; }
 .drop-strip .uploading.hidden { display:none !important; }
 .drop-strip .uploading { flex-direction:column; align-items:stretch; max-width:520px; }
 .jobs-table td.num, .jobs-table td:nth-child(2) { white-space:nowrap; }
+.drop-strip .error-text:empty { display:none; }
